@@ -399,6 +399,35 @@
   .log-num    { color: var(--muted); }
   .log-atomic { color: var(--red-light); }
 
+  .lang-toggle {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    display: flex;
+    overflow: hidden;
+    z-index: 100;
+  }
+
+  .lang-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    padding: 5px 12px;
+    cursor: pointer;
+    font-family: 'Cinzel', serif;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    transition: all 0.15s;
+  }
+
+  .lang-btn.active {
+    background: var(--gold);
+    color: #0a0a0f;
+  }
+
   @media (max-width: 660px) {
     .game-layout { grid-template-columns: 1fr; }
     #chessboard  { width: 320px; height: 320px; }
@@ -409,6 +438,13 @@
 </style>
 </head>
 <body>
+
+<!-- ══ LANGUAGE TOGGLE ══ -->
+<div class="lang-toggle">
+  <button class="lang-btn active" id="btn-ko" onclick="setLang('ko')">한국어</button>
+  <button class="lang-btn"        id="btn-en" onclick="setLang('en')">EN</button>
+</div>
+
 <div id="app">
 
   <!-- ══ MENU ══ -->
@@ -421,47 +457,45 @@
       <div class="mode-card gold" onclick="startGame('1v1','classic')">
         <span class="mode-icon">⚔️</span>
         <span class="mode-name">Local 1v1</span>
-        <p class="mode-desc">두 플레이어가 같은 화면에서 대결</p>
+        <p class="mode-desc" data-i18n="desc_1v1"></p>
       </div>
       <div class="mode-card blue" onclick="startGame('bot','classic')">
         <span class="mode-icon">🤖</span>
         <span class="mode-name">vs Bot</span>
-        <p class="mode-desc">AI 봇과 클래식 체스 대결</p>
+        <p class="mode-desc" data-i18n="desc_bot"></p>
       </div>
       <div class="mode-card red" onclick="showAtomicMenu()">
         <span class="mode-icon">💥</span>
         <span class="mode-name">Atomic</span>
-        <p class="mode-desc">기물이 잡힐 때 폭발! 특수 룰 체스</p>
+        <p class="mode-desc" data-i18n="desc_atomic"></p>
         <span class="atomic-badge">★ Special</span>
       </div>
     </div>
 
     <div id="atomic-sub" style="display:none; max-width:400px; margin:0 auto;">
-      <p style="font-family:'Cinzel',serif;font-size:0.8rem;color:var(--muted);letter-spacing:0.12em;margin-bottom:0.8rem;">ATOMIC MODE 선택</p>
+      <p data-i18n="atomic_choose" style="font-family:'Cinzel',serif;font-size:0.8rem;color:var(--muted);letter-spacing:0.12em;margin-bottom:0.8rem;"></p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.7rem;">
         <div class="mode-card red" onclick="startGame('1v1','atomic')">
           <span class="mode-icon">⚔️</span>
           <span class="mode-name">Atomic 1v1</span>
-          <p class="mode-desc">로컬 2인 아토믹</p>
+          <p class="mode-desc" data-i18n="desc_atomic_1v1"></p>
         </div>
         <div class="mode-card red" onclick="startGame('bot','atomic')">
           <span class="mode-icon">🤖</span>
           <span class="mode-name">Atomic Bot</span>
-          <p class="mode-desc">봇과 아토믹 대결</p>
+          <p class="mode-desc" data-i18n="desc_atomic_bot"></p>
         </div>
       </div>
     </div>
 
-    <p style="font-size:0.72rem;color:var(--muted);margin-top:1.5rem;letter-spacing:0.08em;font-family:'Cinzel',serif;">
-      ATOMIC: 기물을 잡으면 해당 칸 주변 3×3이 전부 폭발합니다. 단, 폰끼리는 살아남음.
-    </p>
+    <p data-i18n="atomic_rule" style="font-size:0.72rem;color:var(--muted);margin-top:1.5rem;letter-spacing:0.08em;font-family:'Cinzel',serif;"></p>
   </div>
 
   <!-- ══ GAME ══ -->
   <div id="game">
     <div class="game-header">
-      <button class="back-btn" onclick="showMenu()">← 메뉴</button>
-      <span class="game-title" id="game-title-text">LOCAL 1v1</span>
+      <button class="back-btn" onclick="showMenu()" data-i18n="btn_back"></button>
+      <span class="game-title" id="game-title-text"></span>
       <span class="game-mode-badge" id="mode-badge">CLASSIC</span>
     </div>
 
@@ -469,15 +503,15 @@
       <!-- White panel -->
       <div class="player-panel" id="white-panel">
         <p class="player-name">
-          <span class="player-color-dot" style="background:#f0d9b5;border:1px solid #888;"></span>White
+          <span class="player-color-dot" style="background:#f0d9b5;border:1px solid #888;"></span><span data-i18n="white"></span>
         </p>
         <div class="captured-pieces" id="white-captured"></div>
         <div id="difficulty-controls" style="display:none;">
-          <p style="font-size:0.7rem;color:var(--muted);margin-top:0.5rem;font-family:'Cinzel',serif;letter-spacing:0.08em;">BOT LEVEL</p>
+          <p data-i18n="bot_level" style="font-size:0.7rem;color:var(--muted);margin-top:0.5rem;font-family:'Cinzel',serif;letter-spacing:0.08em;"></p>
           <div class="difficulty-row">
-            <button class="diff-btn active" onclick="setDiff(1,this)">Easy</button>
-            <button class="diff-btn"        onclick="setDiff(2,this)">Mid</button>
-            <button class="diff-btn"        onclick="setDiff(3,this)">Hard</button>
+            <button class="diff-btn active" onclick="setDiff(1,this)" data-i18n="easy"></button>
+            <button class="diff-btn"        onclick="setDiff(2,this)" data-i18n="mid"></button>
+            <button class="diff-btn"        onclick="setDiff(3,this)" data-i18n="hard"></button>
           </div>
         </div>
       </div>
@@ -486,19 +520,19 @@
       <div>
         <div id="chessboard">
           <div id="overlay">
-            <p class="overlay-title" id="overlay-title">Game Over</p>
+            <p class="overlay-title" id="overlay-title"></p>
             <p class="overlay-sub"   id="overlay-sub"></p>
-            <button class="play-again-btn" onclick="restartGame()">다시 하기</button>
+            <button class="play-again-btn" onclick="restartGame()" data-i18n="play_again"></button>
           </div>
         </div>
-        <div class="status-bar" id="status">White의 차례</div>
+        <div class="status-bar" id="status"></div>
         <div class="move-log"   id="move-log"></div>
       </div>
 
       <!-- Black panel -->
       <div class="player-panel" id="black-panel">
         <p class="player-name">
-          <span class="player-color-dot" style="background:#1a1a1a;border:1px solid #555;"></span>Black
+          <span class="player-color-dot" style="background:#1a1a1a;border:1px solid #555;"></span><span data-i18n="black"></span>
         </p>
         <div class="captured-pieces" id="black-captured"></div>
       </div>
@@ -507,6 +541,89 @@
 </div>
 
 <script>
+/* ══════════════════════════════════════════
+   i18n — Korean / English
+══════════════════════════════════════════ */
+const I18N = {
+  ko: {
+    desc_1v1:        '두 플레이어가 같은 화면에서 대결',
+    desc_bot:        'AI 봇과 클래식 체스 대결',
+    desc_atomic:     '기물이 잡힐 때 폭발! 특수 룰 체스',
+    atomic_choose:   'ATOMIC MODE 선택',
+    desc_atomic_1v1: '로컬 2인 아토믹',
+    desc_atomic_bot: '봇과 아토믹 대결',
+    atomic_rule:     'ATOMIC: 기물을 잡으면 해당 칸 주변 3×3이 전부 폭발합니다. 단, 폰끼리는 살아남음.',
+    btn_back:        '← 메뉴',
+    white:           'White',
+    black:           'Black',
+    bot_level:       'BOT LEVEL',
+    easy:            '쉬움',
+    mid:             '보통',
+    hard:            '어려움',
+    play_again:      '다시 하기',
+    title_1v1:       'LOCAL 1V1',
+    title_bot:       'VS BOT',
+    turn_white:      'White의 차례',
+    turn_black:      'Black의 차례',
+    check_white:     'White 체크!',
+    check_black:     'Black 체크!',
+    win_white:       'White 승리! ♔',
+    win_black:       'Black 승리! ♚',
+    draw:            '무승부',
+    draw_stale:      '스테일메이트 — 무승부',
+    draw_atomic:     '두 왕이 동시에 폭발!',
+    checkmate:       '체크메이트!',
+    explode_white:   'White 왕이 폭발함 💥',
+    explode_black:   'Black 왕이 폭발함 💥',
+  },
+  en: {
+    desc_1v1:        'Two players on the same screen',
+    desc_bot:        'Play classic chess against the AI',
+    desc_atomic:     'Captures explode! Special rule chess',
+    atomic_choose:   'SELECT ATOMIC MODE',
+    desc_atomic_1v1: 'Local 2-player atomic',
+    desc_atomic_bot: 'Atomic chess vs bot',
+    atomic_rule:     'ATOMIC: Capturing a piece explodes the 3×3 area. Pawns survive the blast.',
+    btn_back:        '← Menu',
+    white:           'White',
+    black:           'Black',
+    bot_level:       'BOT LEVEL',
+    easy:            'Easy',
+    mid:             'Mid',
+    hard:            'Hard',
+    play_again:      'Play Again',
+    title_1v1:       'LOCAL 1V1',
+    title_bot:       'VS BOT',
+    turn_white:      "White's turn",
+    turn_black:      "Black's turn",
+    check_white:     'White is in check!',
+    check_black:     'Black is in check!',
+    win_white:       'White Wins! ♔',
+    win_black:       'Black Wins! ♚',
+    draw:            'Draw',
+    draw_stale:      'Stalemate — Draw',
+    draw_atomic:     'Both kings exploded!',
+    checkmate:       'Checkmate!',
+    explode_white:   'White king exploded 💥',
+    explode_black:   'Black king exploded 💥',
+  }
+};
+
+let lang = 'ko';
+
+function setLang(l) {
+  lang = l;
+  document.getElementById('btn-ko').classList.toggle('active', l === 'ko');
+  document.getElementById('btn-en').classList.toggle('active', l === 'en');
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    el.textContent = I18N[lang][el.dataset.i18n] || '';
+  });
+  // Refresh live status if game is running
+  if (document.getElementById('game').style.display !== 'none' && !gameOver) updateStatus();
+}
+
+function t(key) { return I18N[lang][key] || key; }
+
 /* ══════════════════════════════════════════
    CHESS ENGINE — Classic + Atomic
 ══════════════════════════════════════════ */
@@ -551,7 +668,7 @@ function startGame(gm, md) {
   mode     = md;
   document.getElementById('menu').style.display = 'none';
   document.getElementById('game').style.display = 'block';
-  document.getElementById('game-title-text').textContent = gm === 'bot' ? 'VS BOT' : 'LOCAL 1V1';
+  document.getElementById('game-title-text').textContent = gm === 'bot' ? t('title_bot') : t('title_1v1');
   const badge = document.getElementById('mode-badge');
   badge.textContent = md === 'atomic' ? 'ATOMIC' : 'CLASSIC';
   badge.className   = 'game-mode-badge' + (md === 'atomic' ? ' atomic' : '');
@@ -937,14 +1054,14 @@ function getAllLegalMoves(color) {
 function checkGameOver() {
   if (mode==='atomic') {
     const wHas=kingExists('w'), bHas=kingExists('b');
-    if (!wHas&&!bHas) { endGame('Draw','두 왕이 동시에 폭발!'); return; }
-    if (!wHas)        { endGame('Black Wins! ♚','White 왕이 폭발함 💥'); return; }
-    if (!bHas)        { endGame('White Wins! ♔','Black 왕이 폭발함 💥'); return; }
+    if (!wHas&&!bHas) { endGame(t('draw'),        t('draw_atomic'));   return; }
+    if (!wHas)        { endGame(t('win_black'),    t('explode_white')); return; }
+    if (!bHas)        { endGame(t('win_white'),    t('explode_black')); return; }
   }
   const moves = getAllLegalMoves(turn);
   if (moves.length===0) {
-    if (isInCheck(turn, board)) endGame((turn==='w'?'Black':'White')+' Wins! '+(turn==='w'?'♚':'♔'),'체크메이트!');
-    else                        endGame('Draw','스테일메이트 — 무승부');
+    if (isInCheck(turn, board)) endGame(turn==='w' ? t('win_black') : t('win_white'), t('checkmate'));
+    else                        endGame(t('draw'), t('draw_stale'));
   }
 }
 
@@ -958,8 +1075,8 @@ function endGame(title, sub) {
 function updateStatus() {
   const el      = document.getElementById('status');
   const inCheck = isInCheck(turn, board);
-  if (inCheck) { el.textContent = (turn==='w'?'White':'Black')+' 체크!'; el.className='status-bar check'; }
-  else         { el.textContent = (turn==='w'?'White':'Black')+'의 차례'; el.className='status-bar'; }
+  if (inCheck) { el.textContent = turn==='w' ? t('check_white') : t('check_black'); el.className='status-bar check'; }
+  else         { el.textContent = turn==='w' ? t('turn_white')  : t('turn_black');  el.className='status-bar'; }
 }
 
 function updateActivePanels() {
@@ -1216,6 +1333,9 @@ function doBotMove() {
   executeMove(chosen.fr, chosen.fc, chosen.tr, chosen.tc);
   renderBoard();
 }
+
+// Init language on load
+setLang('ko');
 </script>
 </body>
 </html>
