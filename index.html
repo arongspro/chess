@@ -968,75 +968,253 @@ function updateActivePanels() {
 }
 
 /* ══════════════════════════════════════════
-   BOT (minimax depth 1–2)
+   BOT — Minimax + Alpha-Beta + PST
+   Easy  = depth 1 (random-ish)
+   Mid   = depth 3
+   Hard  = depth 4 + quiescence
 ══════════════════════════════════════════ */
-const PIECE_VAL = {P:1,N:3,B:3,R:5,Q:9,K:0};
+
+const PIECE_VAL = { P:100, N:320, B:330, R:500, Q:900, K:20000 };
+
+/* Piece-square tables (from White's POV, row 0 = rank 8) */
+const PST = {
+  P: [
+    [ 0,  0,  0,  0,  0,  0,  0,  0],
+    [50, 50, 50, 50, 50, 50, 50, 50],
+    [10, 10, 20, 30, 30, 20, 10, 10],
+    [ 5,  5, 10, 25, 25, 10,  5,  5],
+    [ 0,  0,  0, 20, 20,  0,  0,  0],
+    [ 5, -5,-10,  0,  0,-10, -5,  5],
+    [ 5, 10, 10,-20,-20, 10, 10,  5],
+    [ 0,  0,  0,  0,  0,  0,  0,  0]
+  ],
+  N: [
+    [-50,-40,-30,-30,-30,-30,-40,-50],
+    [-40,-20,  0,  0,  0,  0,-20,-40],
+    [-30,  0, 10, 15, 15, 10,  0,-30],
+    [-30,  5, 15, 20, 20, 15,  5,-30],
+    [-30,  0, 15, 20, 20, 15,  0,-30],
+    [-30,  5, 10, 15, 15, 10,  5,-30],
+    [-40,-20,  0,  5,  5,  0,-20,-40],
+    [-50,-40,-30,-30,-30,-30,-40,-50]
+  ],
+  B: [
+    [-20,-10,-10,-10,-10,-10,-10,-20],
+    [-10,  0,  0,  0,  0,  0,  0,-10],
+    [-10,  0,  5, 10, 10,  5,  0,-10],
+    [-10,  5,  5, 10, 10,  5,  5,-10],
+    [-10,  0, 10, 10, 10, 10,  0,-10],
+    [-10, 10, 10, 10, 10, 10, 10,-10],
+    [-10,  5,  0,  0,  0,  0,  5,-10],
+    [-20,-10,-10,-10,-10,-10,-10,-20]
+  ],
+  R: [
+    [ 0,  0,  0,  0,  0,  0,  0,  0],
+    [ 5, 10, 10, 10, 10, 10, 10,  5],
+    [-5,  0,  0,  0,  0,  0,  0, -5],
+    [-5,  0,  0,  0,  0,  0,  0, -5],
+    [-5,  0,  0,  0,  0,  0,  0, -5],
+    [-5,  0,  0,  0,  0,  0,  0, -5],
+    [-5,  0,  0,  0,  0,  0,  0, -5],
+    [ 0,  0,  0,  5,  5,  0,  0,  0]
+  ],
+  Q: [
+    [-20,-10,-10, -5, -5,-10,-10,-20],
+    [-10,  0,  0,  0,  0,  0,  0,-10],
+    [-10,  0,  5,  5,  5,  5,  0,-10],
+    [ -5,  0,  5,  5,  5,  5,  0, -5],
+    [  0,  0,  5,  5,  5,  5,  0, -5],
+    [-10,  5,  5,  5,  5,  5,  0,-10],
+    [-10,  0,  5,  0,  0,  0,  0,-10],
+    [-20,-10,-10, -5, -5,-10,-10,-20]
+  ],
+  K: [
+    [-30,-40,-40,-50,-50,-40,-40,-30],
+    [-30,-40,-40,-50,-50,-40,-40,-30],
+    [-30,-40,-40,-50,-50,-40,-40,-30],
+    [-30,-40,-40,-50,-50,-40,-40,-30],
+    [-20,-30,-30,-40,-40,-30,-30,-20],
+    [-10,-20,-20,-20,-20,-20,-20,-10],
+    [ 20, 20,  0,  0,  0,  0, 20, 20],
+    [ 20, 30, 10,  0,  0, 10, 30, 20]
+  ]
+};
+
+function pstScore(piece, r, c) {
+  const type  = piece[1];
+  const color = piece[0];
+  const pstRow = color === 'w' ? r : 7 - r;
+  return (PST[type] ? PST[type][pstRow][c] : 0);
+}
 
 function evalBoard() {
   let score = 0;
-  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
     const p = board[r][c];
-    if (p) score += PIECE_VAL[p[1]] * (p[0]==='b' ? 1 : -1);
+    if (!p) continue;
+    const val = PIECE_VAL[p[1]] + pstScore(p, r, c);
+    score += p[0] === 'b' ? val : -val;
   }
   return score;
 }
 
+/* ── State save/restore (fast object pool) ── */
+function saveState() {
+  return {
+    board: board.map(row => row.slice()),
+    ep:    enPassantTarget ? enPassantTarget.slice() : null,
+    cr:    { ...castlingRights }
+  };
+}
+function restoreState(s) {
+  for (let i = 0; i < 8; i++) board[i] = s.board[i];
+  enPassantTarget = s.ep;
+  castlingRights  = { ...s.cr };
+}
+
+/* ── Apply/undo move on board (no side-effects) ── */
+function applyMoveRaw(m) {
+  const piece    = board[m.fr][m.fc];
+  const captured = board[m.tr][m.tc];
+
+  // En passant
+  if (piece[1]==='P' && m.fc!==m.tc && !captured) board[m.fr][m.tc] = null;
+
+  board[m.tr][m.tc] = piece;
+  board[m.fr][m.fc] = null;
+
+  // Castling rook
+  if (piece[1]==='K') {
+    if (m.tc-m.fc===2) { board[m.tr][5]=board[m.tr][7]; board[m.tr][7]=null; }
+    if (m.fc-m.tc===2) { board[m.tr][3]=board[m.tr][0]; board[m.tr][0]=null; }
+    if (piece[0]==='w') { castlingRights.wK=false; castlingRights.wQ=false; }
+    else               { castlingRights.bK=false; castlingRights.bQ=false; }
+  }
+  if (piece[1]==='R') {
+    if (m.fr===7&&m.fc===0) castlingRights.wQ=false;
+    if (m.fr===7&&m.fc===7) castlingRights.wK=false;
+    if (m.fr===0&&m.fc===0) castlingRights.bQ=false;
+    if (m.fr===0&&m.fc===7) castlingRights.bK=false;
+  }
+
+  enPassantTarget = (piece[1]==='P'&&Math.abs(m.tr-m.fr)===2) ? [(m.fr+m.tr)/2, m.fc] : null;
+
+  // Promotion
+  if (piece==='wP'&&m.tr===0) board[m.tr][m.tc]='wQ';
+  if (piece==='bP'&&m.tr===7) board[m.tr][m.tc]='bQ';
+
+  // Atomic explosion
+  if (mode==='atomic' && captured) {
+    for (let dr=-1;dr<=1;dr++) for (let dc=-1;dc<=1;dc++) {
+      const nr=m.tr+dr, nc=m.tc+dc;
+      if (nr<0||nr>7||nc<0||nc>7) continue;
+      const p=board[nr][nc];
+      if (!p) continue;
+      if (p[1]==='P'&&!(dr===0&&dc===0)) continue;
+      board[nr][nc]=null;
+    }
+    board[m.tr][m.tc]=null;
+  }
+}
+
+/* ── Move ordering: captures first, then by PST gain ── */
+function orderMoves(moves, color) {
+  return moves.sort((a, b) => {
+    const capA = board[a.tr][a.tc] ? PIECE_VAL[board[a.tr][a.tc][1]] : 0;
+    const capB = board[b.tr][b.tc] ? PIECE_VAL[board[b.tr][b.tc][1]] : 0;
+    return capB - capA;
+  });
+}
+
+/* ── Quiescence search (only captures) ── */
+function quiesce(alpha, beta, color) {
+  const stand = evalBoard() * (color==='b' ? 1 : -1);
+  if (stand >= beta) return beta;
+  if (stand > alpha) alpha = stand;
+
+  const moves = getAllLegalMoves(color).filter(m => board[m.tr][m.tc]);
+  for (const m of moves) {
+    const snap = saveState();
+    applyMoveRaw(m);
+    const score = -quiesce(-beta, -alpha, color==='b'?'w':'b');
+    restoreState(snap);
+    if (score >= beta) return beta;
+    if (score > alpha) alpha = score;
+  }
+  return alpha;
+}
+
+/* ── Minimax + Alpha-Beta ── */
+function minimax(depth, alpha, beta, color) {
+  if (depth === 0) return quiesce(alpha, beta, color);
+
+  // Check terminal
+  if (mode==='atomic') {
+    if (!kingExists('w')) return  99999;
+    if (!kingExists('b')) return -99999;
+  }
+
+  const moves = orderMoves(getAllLegalMoves(color), color);
+  if (moves.length === 0) {
+    if (isInCheck(color, board)) return color==='b' ? -99999 : 99999;
+    return 0; // stalemate
+  }
+
+  if (color === 'b') {
+    let best = -Infinity;
+    for (const m of moves) {
+      const snap = saveState();
+      applyMoveRaw(m);
+      const score = minimax(depth-1, alpha, beta, 'w');
+      restoreState(snap);
+      best  = Math.max(best, score);
+      alpha = Math.max(alpha, best);
+      if (alpha >= beta) break;
+    }
+    return best;
+  } else {
+    let best = Infinity;
+    for (const m of moves) {
+      const snap = saveState();
+      applyMoveRaw(m);
+      const score = minimax(depth-1, alpha, beta, 'b');
+      restoreState(snap);
+      best = Math.min(best, score);
+      beta = Math.min(beta, best);
+      if (alpha >= beta) break;
+    }
+    return best;
+  }
+}
+
+/* ── Bot entry point ── */
 function doBotMove() {
-  if (gameOver || turn!=='b') return;
+  if (gameOver || turn !== 'b') return;
   const moves = getAllLegalMoves('b');
   if (!moves.length) return;
 
   let chosen;
-  if      (botDiff===1) chosen = moves[Math.floor(Math.random()*moves.length)];
-  else if (botDiff===2) chosen = pickBest(moves, 1);
-  else                  chosen = pickBest(moves, 2);
+
+  if (botDiff === 1) {
+    // Easy: pure random
+    chosen = moves[Math.floor(Math.random() * moves.length)];
+  } else {
+    const depth = botDiff === 2 ? 3 : 4;
+    let best = -Infinity;
+    const ordered = orderMoves(moves, 'b');
+
+    for (const m of ordered) {
+      const snap = saveState();
+      applyMoveRaw(m);
+      const score = minimax(depth - 1, -Infinity, Infinity, 'w');
+      restoreState(snap);
+      if (score > best) { best = score; chosen = m; }
+    }
+    if (!chosen) chosen = moves[0];
+  }
 
   executeMove(chosen.fr, chosen.fc, chosen.tr, chosen.tc);
   renderBoard();
-}
-
-function pickBest(moves, depth) {
-  let best = -Infinity, chosen = moves[0];
-  for (const m of moves) {
-    const saved  = board.map(row=>[...row]);
-    const savedEP = enPassantTarget?[...enPassantTarget]:null;
-    const savedCR = {...castlingRights};
-    const savedWC = [...whiteCaptured], savedBC = [...blackCaptured];
-
-    // Apply move
-    board[m.tr][m.tc] = board[m.fr][m.fc];
-    board[m.fr][m.fc] = null;
-    if (mode==='atomic' && saved[m.tr][m.tc]) {
-      for (let dr=-1;dr<=1;dr++) for (let dc=-1;dc<=1;dc++) {
-        const nr=m.tr+dr,nc=m.tc+dc;
-        if (nr>=0&&nr<8&&nc>=0&&nc<8&&board[nr][nc]&&board[nr][nc][1]!=='P') board[nr][nc]=null;
-      }
-      board[m.tr][m.tc]=null;
-    }
-
-    let s = evalBoard() + (Math.random()-0.5)*0.2;
-
-    if (depth>1) {
-      const oppMoves = getAllLegalMoves('w');
-      let minVal = Infinity;
-      for (const om of oppMoves.slice(0,8)) {
-        const s2=board.map(r=>[...r]);
-        board[om.tr][om.tc]=board[om.fr][om.fc]; board[om.fr][om.fc]=null;
-        minVal=Math.min(minVal, evalBoard());
-        for(let i=0;i<8;i++) board[i]=[...s2[i]];
-      }
-      if (oppMoves.length) s = minVal;
-    }
-
-    // Restore
-    for (let i=0;i<8;i++) board[i]=saved[i];
-    enPassantTarget=savedEP; Object.assign(castlingRights,savedCR);
-    whiteCaptured.length=0; whiteCaptured.push(...savedWC);
-    blackCaptured.length=0; blackCaptured.push(...savedBC);
-
-    if (s>best) { best=s; chosen=m; }
-  }
-  return chosen;
 }
 </script>
 </body>
