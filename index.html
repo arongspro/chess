@@ -1515,7 +1515,10 @@ function orderMoves(moves, color) {
 }
 
 /* ── Quiescence search (only captures) ── */
-function quiesce(alpha, beta, color) {
+function quiesce(alpha, beta, color, qdepth) {
+  // quiescence 깊이 제한 (무한재귀 방지)
+  if (qdepth <= 0) return evalBoard() * (color==='b' ? 1 : -1);
+
   const stand = evalBoard() * (color==='b' ? 1 : -1);
   if (stand >= beta) return beta;
   if (stand > alpha) alpha = stand;
@@ -1524,7 +1527,7 @@ function quiesce(alpha, beta, color) {
   for (const m of moves) {
     const snap = saveState();
     applyMoveRaw(m);
-    const score = -quiesce(-beta, -alpha, color==='b'?'w':'b');
+    const score = -quiesce(-beta, -alpha, color==='b'?'w':'b', qdepth - 1);
     restoreState(snap);
     if (score >= beta) return beta;
     if (score > alpha) alpha = score;
@@ -1534,7 +1537,7 @@ function quiesce(alpha, beta, color) {
 
 /* ── Minimax + Alpha-Beta ── */
 function minimax(depth, alpha, beta, color) {
-  if (depth === 0) return quiesce(alpha, beta, color);
+  if (depth === 0) return quiesce(alpha, beta, color, 3);
 
   // Check terminal
   if (mode==='atomic') {
