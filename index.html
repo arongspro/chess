@@ -1285,12 +1285,53 @@ function isInCheck(color, b) {
 }
 
 function sqAttackedOnBoard(r, c, by, b) {
+  // 캐슬링 제외한 공격 계산 (재귀 방지)
   for (let fr=0;fr<8;fr++) for (let fc=0;fc<8;fc++) {
     const p = b[fr][fc];
     if (!p || p[0]!==by) continue;
-    if (getPseudoMovesOnBoard(fr,fc,b).some(m=>m[0]===r&&m[1]===c)) return true;
+    if (getAttackMoves(fr,fc,b).some(m=>m[0]===r&&m[1]===c)) return true;
   }
   return false;
+}
+
+// 캐슬링 없는 순수 공격 범위 계산 (sqAttackedOnBoard 전용)
+function getAttackMoves(r, c, b) {
+  const p = b[r][c];
+  if (!p) return [];
+  const color = p[0], type = p[1], opp = color==='w'?'b':'w';
+  const dir = color==='w' ? -1 : 1;
+  const moves = [];
+
+  if (type === 'P') {
+    for (const dc of [-1,1]) {
+      const nr=r+dir, nc=c+dc;
+      if (nr>=0&&nr<8&&nc>=0&&nc<8) moves.push([nr,nc]);
+    }
+  } else if (type === 'N') {
+    for (const [dr,dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) {
+      const nr=r+dr, nc=c+dc;
+      if (nr>=0&&nr<8&&nc>=0&&nc<8) moves.push([nr,nc]);
+    }
+  } else if (type === 'K') {
+    for (const [dr,dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]) {
+      const nr=r+dr, nc=c+dc;
+      if (nr>=0&&nr<8&&nc>=0&&nc<8) moves.push([nr,nc]);
+    }
+  } else {
+    const dirs =
+      type==='R' ? [[0,1],[0,-1],[1,0],[-1,0]] :
+      type==='B' ? [[1,1],[1,-1],[-1,1],[-1,-1]] :
+                   [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]];
+    for (const [dr,dc] of dirs) {
+      let nr=r+dr, nc=c+dc;
+      while (nr>=0&&nr<8&&nc>=0&&nc<8) {
+        moves.push([nr,nc]);
+        if (b[nr][nc]) break;
+        nr+=dr; nc+=dc;
+      }
+    }
+  }
+  return moves;
 }
 
 function kingExists(color) {
