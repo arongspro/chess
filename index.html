@@ -437,9 +437,40 @@
   }
 </style>
 </head>
+<style>
+  #error-toast {
+    display: none;
+    position: fixed;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #c94c4c;
+    color: #fff;
+    font-family: 'Cinzel', serif;
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    padding: 0.6rem 1.2rem;
+    border-radius: 8px;
+    z-index: 9999;
+    max-width: 90vw;
+    text-align: center;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }
+</style>
 <body>
 
 <!-- ══ LANGUAGE TOGGLE ══ -->
+<div id="error-toast"></div>
+<script>
+window.onerror = function(msg, src, line, col, err) {
+  const el = document.getElementById('error-toast');
+  if (!el) return;
+  el.textContent = '에러: ' + msg + ' (line ' + line + ')';
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 6000);
+};
+</script>
+
 <div class="lang-toggle">
   <button class="lang-btn active" id="btn-ko" onclick="setLang('ko')">한국어</button>
   <button class="lang-btn"        id="btn-en" onclick="setLang('en')">EN</button>
@@ -1533,31 +1564,40 @@ function minimax(depth, alpha, beta, color) {
 /* ── Bot entry point ── */
 function doBotMove() {
   if (gameOver || turn !== 'b') return;
-  const moves = getAllLegalMoves('b');
-  if (!moves.length) return;
+  try {
+    const moves = getAllLegalMoves('b');
+    if (!moves.length) return;
 
-  let chosen;
+    let chosen;
 
-  if (botDiff === 1) {
-    // Easy: pure random
-    chosen = moves[Math.floor(Math.random() * moves.length)];
-  } else {
-    const depth = botDiff === 2 ? 3 : 4;
-    let best = -Infinity;
-    const ordered = orderMoves(moves, 'b');
+    if (botDiff === 1) {
+      // Easy: pure random
+      chosen = moves[Math.floor(Math.random() * moves.length)];
+    } else {
+      const depth = botDiff === 2 ? 3 : 4;
+      let best = -Infinity;
+      const ordered = orderMoves(moves, 'b');
 
-    for (const m of ordered) {
-      const snap = saveState();
-      applyMoveRaw(m);
-      const score = minimax(depth - 1, -Infinity, Infinity, 'w');
-      restoreState(snap);
-      if (score > best) { best = score; chosen = m; }
+      for (const m of ordered) {
+        const snap = saveState();
+        applyMoveRaw(m);
+        const score = minimax(depth - 1, -Infinity, Infinity, 'w');
+        restoreState(snap);
+        if (score > best) { best = score; chosen = m; }
+      }
+      if (!chosen) chosen = moves[0];
     }
-    if (!chosen) chosen = moves[0];
-  }
 
-  executeMove(chosen.fr, chosen.fc, chosen.tr, chosen.tc);
-  renderBoard();
+    executeMove(chosen.fr, chosen.fc, chosen.tr, chosen.tc);
+    renderBoard();
+  } catch(e) {
+    const el = document.getElementById('error-toast');
+    if (el) {
+      el.textContent = '봇 에러: ' + e.message;
+      el.style.display = 'block';
+      setTimeout(() => { el.style.display = 'none'; }, 6000);
+    }
+  }
 }
 
 // Init language on load
