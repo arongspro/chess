@@ -453,7 +453,7 @@
     <h1 class="menu-title">CHESS</h1>
     <p class="menu-subtitle">Classical · Atomic</p>
 
-    <div class="mode-cards">
+    <div class="mode-cards" style="grid-template-columns:repeat(2,1fr);max-width:500px;">
       <div class="mode-card gold" onclick="startGame('1v1','classic')">
         <span class="mode-icon">⚔️</span>
         <span class="mode-name">Local 1v1</span>
@@ -469,6 +469,34 @@
         <span class="mode-name">Atomic</span>
         <p class="mode-desc" data-i18n="desc_atomic"></p>
         <span class="atomic-badge">★ Special</span>
+      </div>
+      <div class="mode-card blue" onclick="showOnlineMenu()">
+        <span class="mode-icon">🌐</span>
+        <span class="mode-name">Online 1v1</span>
+        <p class="mode-desc" data-i18n="desc_online"></p>
+      </div>
+    </div>
+
+    <!-- 온라인 메뉴 -->
+    <div id="online-sub" style="display:none;max-width:420px;margin:0.8rem auto 0;">
+      <div style="background:var(--surface);border:1px solid #4c82c9;border-radius:12px;padding:1.5rem;">
+        <p style="font-family:'Cinzel',serif;font-size:0.8rem;color:#7ab0e8;letter-spacing:0.12em;margin-bottom:1rem;" data-i18n="online_title"></p>
+        <input id="room-code-input" type="text" maxlength="6" placeholder="방 코드 (영문+숫자 최대 6자)"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+                 color:var(--text);padding:0.5rem 0.8rem;font-family:'Cinzel',serif;font-size:0.85rem;
+                 letter-spacing:0.1em;outline:none;text-transform:uppercase;margin-bottom:0.8rem;box-sizing:border-box;" />
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
+          <button onclick="createOnlineRoom()"
+            style="background:var(--gold);color:#0a0a0f;border:none;padding:0.5rem;border-radius:6px;
+                   font-family:'Cinzel',serif;font-size:0.75rem;font-weight:700;letter-spacing:0.08em;cursor:pointer;"
+            data-i18n="btn_create"></button>
+          <button onclick="joinOnlineRoom()"
+            style="background:transparent;color:#7ab0e8;border:1px solid #4c82c9;padding:0.5rem;border-radius:6px;
+                   font-family:'Cinzel',serif;font-size:0.75rem;font-weight:700;letter-spacing:0.08em;cursor:pointer;"
+            data-i18n="btn_join"></button>
+        </div>
+        <p id="online-status" style="font-size:0.75rem;color:var(--muted);margin-top:0.8rem;text-align:center;
+           font-family:'Cinzel',serif;min-height:1.2em;letter-spacing:0.06em;"></p>
       </div>
     </div>
 
@@ -575,6 +603,17 @@ const I18N = {
     checkmate:       '체크메이트!',
     explode_white:   'White 왕이 폭발함 💥',
     explode_black:   'Black 왕이 폭발함 💥',
+    desc_online:     '방 코드로 친구와 온라인 대결',
+    online_title:    'ONLINE 1V1',
+    btn_create:      '방 만들기',
+    btn_join:        '방 참가',
+    online_waiting:  '상대방을 기다리는 중...',
+    online_connecting: '연결 중...',
+    online_your_turn:  '당신의 차례',
+    online_opp_turn:   '상대방 차례',
+    online_left:       '상대방이 나갔습니다',
+    online_you:        '나',
+    online_opp:        '상대',
   },
   en: {
     desc_1v1:        'Two players on the same screen',
@@ -606,6 +645,17 @@ const I18N = {
     checkmate:       'Checkmate!',
     explode_white:   'White king exploded 💥',
     explode_black:   'Black king exploded 💥',
+    desc_online:     'Online 1v1 with a friend via room code',
+    online_title:    'ONLINE 1V1',
+    btn_create:      'Create Room',
+    btn_join:        'Join Room',
+    online_waiting:  'Waiting for opponent...',
+    online_connecting: 'Connecting...',
+    online_your_turn:  'Your turn',
+    online_opp_turn:   "Opponent's turn",
+    online_left:       'Opponent left the game',
+    online_you:        'You',
+    online_opp:        'Opponent',
   }
 };
 
@@ -650,6 +700,143 @@ let castlingRights, enPassantTarget, moveLog;
 let whiteCaptured, blackCaptured;
 let botTimer = null;
 
+/* ══════════════════════════════════════════
+   ONLINE — Socket.IO via Cloudflare Worker
+══════════════════════════════════════════ */
+const CHESS_SERVER = 'https://game-proxy.juhyung1234567910.workers.dev/chess';
+
+let chessSocket   = null;
+let myColor       = null;  // 'white' | 'black'
+let onlineRoomId  = null;
+let isOnlineGame  = false;
+
+function showOnlineMenu() {
+  document.getElementById('atomic-sub').style.display = 'none';
+  const sub = document.getElementById('online-sub');
+  sub.style.display = sub.style.display === 'none' ? 'block' : 'none';
+}
+
+function setOnlineStatus(msg) {
+  const el = document.getElementById('online-status');
+  if (el) el.textContent = msg;
+}
+
+function _loadSocketIO(cb) {
+  if (window.io) return cb();
+  const s = document.createElement('script');
+  s.src = 'https://cdn.socket.io/4.7.5/socket.io.min.js';
+  s.onload = cb;
+  document.head.appendChild(s);
+}
+
+function _connectChessSocket(uid, roomId, asCreator) {
+  setOnlineStatus(t('online_connecting'));
+  _loadSocketIO(() => {
+    if (chessSocket) chessSocket.disconnect();
+    chessSocket = window.io(CHESS_SERVER, { transports: ['websocket', 'polling'] });
+
+    chessSocket.on('connect', () => {
+      chessSocket.emit('chess_join', { uid, roomId, mode: 'classic' });
+    });
+
+    chessSocket.on('chess_joined', ({ color, roomId: rid, status }) => {
+      myColor      = color;
+      onlineRoomId = rid;
+      isOnlineGame = true;
+      if (asCreator && status === 'waiting') {
+        setOnlineStatus(`방 코드: ${rid}  |  ${t('online_waiting')}`);
+      } else {
+        // 두 번째 플레이어 → 바로 시작
+        setOnlineStatus('');
+      }
+    });
+
+    chessSocket.on('chess_start', ({ mode: md }) => {
+      setOnlineStatus('');
+      startOnlineGame(md || 'classic');
+    });
+
+    chessSocket.on('chess_move', ({ fr, fc, tr, tc }) => {
+      // 상대방 수를 받아서 실행
+      executeMove(fr, fc, tr, tc);
+      renderBoard();
+    });
+
+    chessSocket.on('chess_end', ({ result }) => {
+      // 상대방이 보낸 게임 종료
+    });
+
+    chessSocket.on('chess_restart', () => {
+      initBoard();
+    });
+
+    chessSocket.on('chess_chat', ({ color, text }) => {
+      appendOnlineChat(color, text);
+    });
+
+    chessSocket.on('chess_opponent_left', () => {
+      setOnlineStatus(t('online_left'));
+    });
+
+    chessSocket.on('chess_error', ({ msg }) => {
+      setOnlineStatus(msg);
+    });
+
+    chessSocket.on('disconnect', () => {
+      if (isOnlineGame) setOnlineStatus(t('online_left'));
+    });
+  });
+}
+
+function createOnlineRoom() {
+  const code = (document.getElementById('room-code-input').value || '').trim().toUpperCase();
+  const roomId = code || Math.random().toString(36).slice(2,6).toUpperCase();
+  document.getElementById('room-code-input').value = roomId;
+  const uid = 'u_' + Math.random().toString(36).slice(2,8);
+  _connectChessSocket(uid, roomId, true);
+}
+
+function joinOnlineRoom() {
+  const roomId = (document.getElementById('room-code-input').value || '').trim().toUpperCase();
+  if (!roomId) { setOnlineStatus('방 코드를 입력하세요.'); return; }
+  const uid = 'u_' + Math.random().toString(36).slice(2,8);
+  _connectChessSocket(uid, roomId, false);
+}
+
+function startOnlineGame(md) {
+  isOnlineGame = true;
+  gameMode = 'online';
+  mode     = md;
+  document.getElementById('menu').style.display = 'none';
+  document.getElementById('game').style.display = 'block';
+  document.getElementById('game-title-text').textContent = 'ONLINE 1V1';
+  const badge = document.getElementById('mode-badge');
+  badge.textContent = md === 'atomic' ? 'ATOMIC' : 'CLASSIC';
+  badge.className   = 'game-mode-badge' + (md === 'atomic' ? ' atomic' : '');
+  document.getElementById('difficulty-controls').style.display = 'none';
+
+  // 패널 이름 변경
+  const whiteLabel = myColor === 'white' ? t('online_you') : t('online_opp');
+  const blackLabel = myColor === 'black' ? t('online_you') : t('online_opp');
+  document.querySelector('#white-panel .player-name').innerHTML =
+    `<span class="player-color-dot" style="background:#f0d9b5;border:1px solid #888;"></span>${whiteLabel}`;
+  document.querySelector('#black-panel .player-name').innerHTML =
+    `<span class="player-color-dot" style="background:#1a1a1a;border:1px solid #555;"></span>${blackLabel}`;
+
+  initBoard();
+}
+
+function appendOnlineChat(color, text) {
+  // 간단히 status bar에 표시
+  const el = document.getElementById('status');
+  if (el) {
+    const prev = el.dataset.prevStatus || '';
+    el.dataset.prevStatus = el.textContent;
+    el.textContent = `[${color}] ${text}`;
+    setTimeout(() => { el.textContent = prev; }, 3000);
+  }
+}
+
 /* ── Menu helpers ── */
 function showAtomicMenu() {
   const sub = document.getElementById('atomic-sub');
@@ -658,9 +845,11 @@ function showAtomicMenu() {
 
 function showMenu() {
   if (botTimer) { clearTimeout(botTimer); botTimer = null; }
+  if (chessSocket) { chessSocket.disconnect(); chessSocket = null; }
   document.getElementById('game').style.display  = 'none';
   document.getElementById('menu').style.display  = 'block';
   document.getElementById('atomic-sub').style.display = 'none';
+  document.getElementById('online-sub').style.display = 'none';
 }
 
 function startGame(gm, md) {
@@ -705,7 +894,12 @@ function initBoard() {
   updateActivePanels();
 }
 
-function restartGame() { initBoard(); }
+function restartGame() {
+  if (gameMode === 'online' && chessSocket) {
+    chessSocket.emit('chess_restart');
+  }
+  initBoard();
+}
 
 /* ── Render ── */
 function renderBoard() {
@@ -743,6 +937,11 @@ function renderBoard() {
 function onSquareClick(r, c) {
   if (gameOver) return;
   if (gameMode === 'bot' && turn === 'b') return;
+  // 온라인: 내 색 아닐 때 클릭 막기
+  if (gameMode === 'online') {
+    const myTurn = (myColor === 'white' && turn === 'w') || (myColor === 'black' && turn === 'b');
+    if (!myTurn) return;
+  }
 
   if (selected) {
     const move = validMoves.find(m => m[0] === r && m[1] === c);
@@ -825,6 +1024,14 @@ function executeMove(fr, fc, tr, tc) {
 
   turn = turn === 'w' ? 'b' : 'w';
   updateActivePanels();
+
+  // 온라인: 내가 둔 수를 서버로 전송
+  if (gameMode === 'online' && chessSocket) {
+    const wasMyTurn = (myColor === 'white' && turn === 'b') || (myColor === 'black' && turn === 'w');
+    if (wasMyTurn) {
+      chessSocket.emit('chess_move', { fr, fc, tr, tc });
+    }
+  }
 
   if (atomicSquares.length) animateExplosions(atomicSquares);
 
@@ -1075,6 +1282,19 @@ function endGame(title, sub) {
 function updateStatus() {
   const el      = document.getElementById('status');
   const inCheck = isInCheck(turn, board);
+
+  if (gameMode === 'online') {
+    const myTurn = (myColor === 'white' && turn === 'w') || (myColor === 'black' && turn === 'b');
+    if (inCheck) {
+      el.textContent = turn==='w' ? t('check_white') : t('check_black');
+      el.className = 'status-bar check';
+    } else {
+      el.textContent = myTurn ? t('online_your_turn') : t('online_opp_turn');
+      el.className = myTurn ? 'status-bar win' : 'status-bar';
+    }
+    return;
+  }
+
   if (inCheck) { el.textContent = turn==='w' ? t('check_white') : t('check_black'); el.className='status-bar check'; }
   else         { el.textContent = turn==='w' ? t('turn_white')  : t('turn_black');  el.className='status-bar'; }
 }
