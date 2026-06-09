@@ -1250,14 +1250,14 @@ function getPseudoMovesOnBoard(r, c, b) {
       const nr=r+dr, nc=c+dc;
       if (nr>=0&&nr<8&&nc>=0&&nc<8 && b[nr][nc]?.[0]!==color) moves.push([nr, nc]);
     }
-    // Castling
+    // Castling (isInCheck 제거 → 재귀 방지, sqAttackedOnBoard만 사용)
     if (color==='w' && r===7 && c===4) {
-      if (castlingRights.wK && !b[7][5] && !b[7][6] && !isInCheck('w',b) && !sqAttackedOnBoard(7,5,'b',b) && !sqAttackedOnBoard(7,6,'b',b)) moves.push([7,6]);
-      if (castlingRights.wQ && !b[7][3] && !b[7][2] && !b[7][1] && !isInCheck('w',b) && !sqAttackedOnBoard(7,3,'b',b) && !sqAttackedOnBoard(7,2,'b',b)) moves.push([7,2]);
+      if (castlingRights.wK && !b[7][5] && !b[7][6] && !sqAttackedOnBoard(7,4,'b',b) && !sqAttackedOnBoard(7,5,'b',b) && !sqAttackedOnBoard(7,6,'b',b)) moves.push([7,6]);
+      if (castlingRights.wQ && !b[7][3] && !b[7][2] && !b[7][1] && !sqAttackedOnBoard(7,4,'b',b) && !sqAttackedOnBoard(7,3,'b',b) && !sqAttackedOnBoard(7,2,'b',b)) moves.push([7,2]);
     }
     if (color==='b' && r===0 && c===4) {
-      if (castlingRights.bK && !b[0][5] && !b[0][6] && !isInCheck('b',b) && !sqAttackedOnBoard(0,5,'w',b) && !sqAttackedOnBoard(0,6,'w',b)) moves.push([0,6]);
-      if (castlingRights.bQ && !b[0][3] && !b[0][2] && !b[0][1] && !isInCheck('b',b) && !sqAttackedOnBoard(0,3,'w',b) && !sqAttackedOnBoard(0,2,'w',b)) moves.push([0,2]);
+      if (castlingRights.bK && !b[0][5] && !b[0][6] && !sqAttackedOnBoard(0,4,'w',b) && !sqAttackedOnBoard(0,5,'w',b) && !sqAttackedOnBoard(0,6,'w',b)) moves.push([0,6]);
+      if (castlingRights.bQ && !b[0][3] && !b[0][2] && !b[0][1] && !sqAttackedOnBoard(0,4,'w',b) && !sqAttackedOnBoard(0,3,'w',b) && !sqAttackedOnBoard(0,2,'w',b)) moves.push([0,2]);
     }
 
   } else {
