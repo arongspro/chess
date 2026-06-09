@@ -908,8 +908,14 @@ function renderBoard() {
   cb.innerHTML  = '';
   cb.appendChild(overlay);
 
-  for (let r = 0; r < 8; r++) {
-    for (let c = 0; c < 8; c++) {
+  // 온라인에서 흑이면 보드 뒤집기
+  const flipped = (gameMode === 'online' && myColor === 'black');
+
+  for (let ri = 0; ri < 8; ri++) {
+    for (let ci = 0; ci < 8; ci++) {
+      const r = flipped ? 7 - ri : ri;
+      const c = flipped ? 7 - ci : ci;
+
       const sq = document.createElement('div');
       sq.className   = 'sq ' + ((r + c) % 2 === 0 ? 'light' : 'dark');
       sq.dataset.r   = r;
