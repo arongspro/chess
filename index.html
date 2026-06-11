@@ -24,6 +24,7 @@
     --dark-sq: #8b6343;
     --highlight: rgba(255,220,50,0.45);
     --valid-move: rgba(50,200,100,0.35);
+    --last-move: rgba(100,180,255,0.30);
   }
 
   body {
@@ -167,6 +168,21 @@
   }
   .back-btn:hover { border-color: var(--gold); color: var(--gold); }
 
+  .undo-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 0.35rem 0.9rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'Crimson Pro', serif;
+    font-size: 0.9rem;
+    transition: all 0.15s;
+  }
+  .undo-btn:hover { border-color: #7ab0e8; color: #7ab0e8; }
+  .undo-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .undo-btn:disabled:hover { border-color: var(--border); color: var(--muted); }
+
   .game-title {
     font-family: 'Cinzel', serif;
     font-size: 1rem;
@@ -266,6 +282,7 @@
   .sq.light { background: var(--light-sq); }
   .sq.dark  { background: var(--dark-sq); }
   .sq.selected { background: var(--highlight) !important; }
+  .sq.last-move { background: var(--last-move) !important; }
 
   .sq.valid-move::after {
     content: '';
@@ -568,7 +585,10 @@ window.onerror = function(msg, src, line, col, err) {
     <div class="game-header">
       <button class="back-btn" onclick="showMenu()" data-i18n="btn_back"></button>
       <span class="game-title" id="game-title-text"></span>
-      <span class="game-mode-badge" id="mode-badge">CLASSIC</span>
+      <div style="display:flex;align-items:center;gap:0.5rem;">
+        <button class="undo-btn" id="undo-btn" onclick="undoMove()" title="Undo">↩ Undo</button>
+        <span class="game-mode-badge" id="mode-badge">CLASSIC</span>
+      </div>
     </div>
 
     <div class="game-layout">
@@ -743,6 +763,8 @@ let board, selected, turn, gameMode, mode, validMoves, gameOver, botDiff;
 let castlingRights, enPassantTarget, moveLog;
 let whiteCaptured, blackCaptured;
 let botTimer = null;
+let lastMove = null;       // {fr,fc,tr,tc} — for square highlight
+let history  = [];         // full snapshots for undo
 
 /* ══════════════════════════════════════════
    ONLINE — Socket.IO via Cloudflare Worker
@@ -928,11 +950,14 @@ function initBoard() {
   moveLog          = [];
   whiteCaptured    = [];
   blackCaptured    = [];
+  lastMove         = null;
+  history          = [];
   if (botTimer) { clearTimeout(botTimer); botTimer = null; }
   document.getElementById('overlay').classList.remove('show');
   document.getElementById('white-captured').textContent = '';
   document.getElementById('black-captured').textContent = '';
   document.getElementById('move-log').innerHTML = '';
+  updateUndoBtn();
   renderBoard();
   updateStatus();
   updateActivePanels();
@@ -966,6 +991,12 @@ function renderBoard() {
       sq.dataset.c   = c;
 
       if (selected && selected[0] === r && selected[1] === c) sq.classList.add('selected');
+
+      // Last move highlight (behind selection)
+      if (!sq.classList.contains('selected') && lastMove &&
+          ((r === lastMove.fr && c === lastMove.fc) || (r === lastMove.tr && c === lastMove.tc))) {
+        sq.classList.add('last-move');
+      }
 
       const vm = validMoves.find(m => m[0] === r && m[1] === c);
       if (vm) sq.classList.add(board[r][c] ? 'valid-capture' : 'valid-move');
@@ -1017,6 +1048,20 @@ function onSquareClick(r, c) {
 
 /* ── Execute move ── */
 function executeMove(fr, fc, tr, tc) {
+  // Save full snapshot for undo (before any changes)
+  history.push({
+    board:         board.map(r => r.slice()),
+    turn,
+    castlingRights: { ...castlingRights },
+    enPassantTarget: enPassantTarget ? enPassantTarget.slice() : null,
+    moveLog:       [...moveLog],
+    whiteCaptured: [...whiteCaptured],
+    blackCaptured: [...blackCaptured],
+    lastMove:      lastMove ? { ...lastMove } : null,
+    moveLogHTML:   document.getElementById('move-log').innerHTML,
+  });
+  updateUndoBtn();
+
   const piece    = board[fr][fc];
   const captured = board[tr][tc];
   const notation = toNotation(fr, fc, tr, tc, piece, captured);
@@ -1073,6 +1118,7 @@ function executeMove(fr, fc, tr, tc) {
   document.getElementById('white-captured').textContent = whiteCaptured.join('');
   document.getElementById('black-captured').textContent = blackCaptured.join('');
 
+  lastMove = { fr, fc, tr, tc };
   turn = turn === 'w' ? 'b' : 'w';
   updateActivePanels();
 
@@ -1369,6 +1415,52 @@ function endGame(title, sub) {
   document.getElementById('overlay-title').textContent = title;
   document.getElementById('overlay-sub').textContent   = sub;
   document.getElementById('overlay').classList.add('show');
+  updateUndoBtn();
+}
+
+/* ── Undo ── */
+function updateUndoBtn() {
+  const btn = document.getElementById('undo-btn');
+  if (!btn) return;
+  // Disable in online mode or when nothing to undo
+  const canUndo = history.length > 0 && gameMode !== 'online' && !gameOver;
+  btn.disabled = !canUndo;
+}
+
+function undoMove() {
+  if (!history.length || gameMode === 'online') return;
+
+  // In bot mode, undo both the bot's reply and the player's move
+  const stepsBack = (gameMode === 'bot' && history.length >= 2) ? 2 : 1;
+  for (let i = 0; i < stepsBack; i++) {
+    if (!history.length) break;
+    const snap = history.pop();
+    board            = snap.board.map(r => r.slice());
+    turn             = snap.turn;
+    castlingRights   = { ...snap.castlingRights };
+    enPassantTarget  = snap.enPassantTarget ? snap.enPassantTarget.slice() : null;
+    moveLog          = [...snap.moveLog];
+    whiteCaptured    = [...snap.whiteCaptured];
+    blackCaptured    = [...snap.blackCaptured];
+    lastMove         = snap.lastMove ? { ...snap.lastMove } : null;
+    document.getElementById('move-log').innerHTML = snap.moveLogHTML;
+  }
+
+  // Clear any pending bot timer
+  if (botTimer) { clearTimeout(botTimer); botTimer = null; }
+
+  gameOver = false;
+  selected   = null;
+  validMoves = [];
+
+  document.getElementById('white-captured').textContent = whiteCaptured.join('');
+  document.getElementById('black-captured').textContent = blackCaptured.join('');
+  document.getElementById('overlay').classList.remove('show');
+
+  updateUndoBtn();
+  updateActivePanels();
+  updateStatus();
+  renderBoard();
 }
 
 function updateStatus() {
