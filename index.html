@@ -828,6 +828,14 @@ function _connectChessSocket(uid, roomId, asCreator) {
       renderBoard();
     });
 
+    chessSocket.on('chess_undo_request', ({ fromColor }) => {
+      onUndoRequest(fromColor);
+    });
+
+    chessSocket.on('chess_undo_response', ({ accepted }) => {
+      onUndoResponse(accepted);
+    });
+
     chessSocket.on('chess_end', ({ result }) => {
       // 상대방이 보낸 게임 종료
     });
@@ -952,6 +960,7 @@ function initBoard() {
   blackCaptured    = [];
   lastMove         = null;
   history          = [];
+  undoPending      = false;
   if (botTimer) { clearTimeout(botTimer); botTimer = null; }
   document.getElementById('overlay').classList.remove('show');
   document.getElementById('white-captured').textContent = '';
@@ -1419,19 +1428,24 @@ function endGame(title, sub) {
 }
 
 /* ── Undo ── */
+let undoPending = false; // 온라인: 내가 요청 보내고 대기 중
+
 function updateUndoBtn() {
   const btn = document.getElementById('undo-btn');
   if (!btn) return;
-  // Disable in online mode or when nothing to undo
-  const canUndo = history.length > 0 && gameMode !== 'online' && !gameOver;
-  btn.disabled = !canUndo;
+  if (gameMode === 'online') {
+    // 온라인: 내 턴이 끝난 후(상대 턴)이고 최소 1수 이상 뒀을 때만 활성화
+    const myTurn = (myColor === 'white' && turn === 'w') || (myColor === 'black' && turn === 'b');
+    btn.disabled = !history.length || gameOver || myTurn || undoPending;
+    btn.textContent = undoPending ? '⏳ 대기 중…' : '↩ Undo';
+  } else {
+    const canUndo = history.length > 0 && !gameOver;
+    btn.disabled = !canUndo;
+    btn.textContent = '↩ Undo';
+  }
 }
 
-function undoMove() {
-  if (!history.length || gameMode === 'online') return;
-
-  // In bot mode, undo both the bot's reply and the player's move
-  const stepsBack = (gameMode === 'bot' && history.length >= 2) ? 2 : 1;
+function applyUndoSnap(stepsBack) {
   for (let i = 0; i < stepsBack; i++) {
     if (!history.length) break;
     const snap = history.pop();
@@ -1445,22 +1459,116 @@ function undoMove() {
     lastMove         = snap.lastMove ? { ...snap.lastMove } : null;
     document.getElementById('move-log').innerHTML = snap.moveLogHTML;
   }
-
-  // Clear any pending bot timer
   if (botTimer) { clearTimeout(botTimer); botTimer = null; }
-
-  gameOver = false;
+  gameOver   = false;
   selected   = null;
   validMoves = [];
-
   document.getElementById('white-captured').textContent = whiteCaptured.join('');
   document.getElementById('black-captured').textContent = blackCaptured.join('');
   document.getElementById('overlay').classList.remove('show');
-
   updateUndoBtn();
   updateActivePanels();
   updateStatus();
   renderBoard();
+}
+
+function undoMove() {
+  if (!history.length) return;
+
+  if (gameMode === 'online') {
+    if (undoPending) return;
+    undoPending = true;
+    updateUndoBtn();
+    chessSocket.emit('chess_undo_request');
+    return;
+  }
+
+  // 로컬 / 봇: 바로 실행
+  const stepsBack = (gameMode === 'bot' && history.length >= 2) ? 2 : 1;
+  applyUndoSnap(stepsBack);
+}
+
+/* ── 온라인 undo 요청 수신 (상대가 요청) ── */
+function onUndoRequest(fromColor) {
+  showUndoDialog(fromColor);
+}
+
+/* ── 온라인 undo 응답 수신 (내가 요청했고 상대가 답함) ── */
+function onUndoResponse(accepted) {
+  undoPending = false;
+  if (accepted) {
+    // 양쪽 다 2수 되돌리기 (내 수 + 상대 수)
+    const stepsBack = history.length >= 2 ? 2 : 1;
+    applyUndoSnap(stepsBack);
+    showToast('↩ Undo 승인됨');
+  } else {
+    updateUndoBtn();
+    showToast('✗ Undo 거절됨');
+  }
+}
+
+/* ── Undo 수락/거절 다이얼로그 ── */
+function showUndoDialog(fromColor) {
+  // 기존 다이얼로그 있으면 제거
+  const old = document.getElementById('undo-dialog');
+  if (old) old.remove();
+
+  const colorLabel = fromColor === 'white' ? 'White' : 'Black';
+  const dlg = document.createElement('div');
+  dlg.id = 'undo-dialog';
+  dlg.style.cssText = `
+    position:fixed; bottom:5rem; left:50%; transform:translateX(-50%);
+    background:var(--surface2); border:1px solid var(--gold);
+    border-radius:10px; padding:1rem 1.4rem; z-index:9999;
+    font-family:'Cinzel',serif; font-size:0.82rem; color:var(--text);
+    letter-spacing:0.08em; text-align:center;
+    box-shadow:0 4px 24px rgba(0,0,0,0.6);
+    display:flex; flex-direction:column; gap:0.7rem; min-width:220px;
+  `;
+  dlg.innerHTML = `
+    <span style="color:var(--gold-light);">${colorLabel}이 Undo를 요청했습니다</span>
+    <div style="display:flex;gap:0.6rem;justify-content:center;">
+      <button onclick="respondUndo(true)"
+        style="background:var(--gold);color:#0a0a0f;border:none;padding:0.35rem 1rem;
+               border-radius:6px;cursor:pointer;font-family:'Cinzel',serif;font-size:0.75rem;
+               font-weight:700;letter-spacing:0.08em;">✓ 허락</button>
+      <button onclick="respondUndo(false)"
+        style="background:transparent;color:var(--red-light);border:1px solid var(--red);
+               padding:0.35rem 1rem;border-radius:6px;cursor:pointer;
+               font-family:'Cinzel',serif;font-size:0.75rem;letter-spacing:0.08em;">✗ 거절</button>
+    </div>
+  `;
+  document.body.appendChild(dlg);
+
+  // 15초 후 자동 거절
+  setTimeout(() => {
+    if (document.getElementById('undo-dialog') === dlg) {
+      respondUndo(false);
+    }
+  }, 15000);
+}
+
+function respondUndo(accepted) {
+  const dlg = document.getElementById('undo-dialog');
+  if (dlg) dlg.remove();
+  chessSocket.emit('chess_undo_response', { accepted });
+  if (accepted) {
+    // 상대 요청을 허락 → 나도 2수 되돌리기
+    const stepsBack = history.length >= 2 ? 2 : 1;
+    applyUndoSnap(stepsBack);
+    showToast('↩ Undo 허락함');
+  }
+}
+
+function showToast(msg) {
+  const el = document.getElementById('error-toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.background = msg.startsWith('↩') ? 'var(--surface2)' : '#c94c4c';
+  el.style.border = msg.startsWith('↩') ? '1px solid var(--gold)' : 'none';
+  el.style.color = msg.startsWith('↩') ? 'var(--gold-light)' : '#fff';
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 3000);
 }
 
 function updateStatus() {
