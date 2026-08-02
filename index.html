@@ -732,8 +732,10 @@ function setLang(l) {
   document.querySelectorAll('[data-i18n]').forEach(el => {
     el.textContent = I18N[lang][el.dataset.i18n] || '';
   });
-  // Refresh live status if game is running
-  if (document.getElementById('game').style.display !== 'none' && !gameOver) updateStatus();
+  // Refresh live status if game is running (inline style is only ever set to
+  // 'block' once a game starts — the initial 'none' comes from CSS, not an
+  // inline style, so comparing against 'none' here is always true on load).
+  if (document.getElementById('game').style.display === 'block' && !gameOver) updateStatus();
 }
 
 function t(key) { return I18N[lang][key] || key; }
