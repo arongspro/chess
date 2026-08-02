@@ -1746,13 +1746,18 @@ function applyMoveRaw(m) {
   }
 }
 
-/* ── Move ordering: captures first, then by PST gain ── */
+/* ── Move ordering: MVV-LVA (captures) + promotions first — better ordering means
+   alpha-beta prunes far more branches, which is what actually lets the search go deeper. */
+function moveOrderScore(m) {
+  const victim   = board[m.tr][m.tc];
+  const attacker = board[m.fr][m.fc];
+  let score = 0;
+  if (victim) score += PIECE_VAL[victim[1]] * 10 - PIECE_VAL[attacker[1]];
+  if (attacker[1] === 'P' && (m.tr === 0 || m.tr === 7)) score += PIECE_VAL.Q; // promotion
+  return score;
+}
 function orderMoves(moves, color) {
-  return moves.sort((a, b) => {
-    const capA = board[a.tr][a.tc] ? PIECE_VAL[board[a.tr][a.tc][1]] : 0;
-    const capB = board[b.tr][b.tc] ? PIECE_VAL[board[b.tr][b.tc][1]] : 0;
-    return capB - capA;
-  });
+  return moves.sort((a, b) => moveOrderScore(b) - moveOrderScore(a));
 }
 
 /* ── Quiescence search (only captures) ── */
@@ -1824,18 +1829,36 @@ function doBotMove() {
       // Easy: pure random
       chosen = moves[Math.floor(Math.random() * moves.length)];
     } else {
-      const depth = botDiff === 2 ? 3 : 4;
-      let best = -Infinity;
-      const ordered = orderMoves(moves, 'b');
+      // Mid/Hard: iterative deepening within a time budget. Correct alpha-beta
+      // (fixed above) prunes hard enough that a fixed shallow depth was leaving
+      // most of the budget unused — search as deep as time allows instead.
+      const maxDepth  = botDiff === 2 ? 5 : 8;
+      const timeLimit = botDiff === 2 ? 700 : 3000;
+      const startTime = (typeof performance !== 'undefined' ? performance : Date).now();
+      let ordered = orderMoves(moves, 'b');
+      chosen = ordered[0];
 
-      for (const m of ordered) {
-        const snap = saveState();
-        applyMoveRaw(m);
-        const score = -minimax(depth - 1, -Infinity, Infinity, 'w');
-        restoreState(snap);
-        if (score > best) { best = score; chosen = m; }
+      for (let depth = 2; depth <= maxDepth; depth++) {
+        let best = -Infinity, bestMove = null, timedOut = false;
+        for (const m of ordered) {
+          const snap = saveState();
+          applyMoveRaw(m);
+          const score = -minimax(depth - 1, -Infinity, Infinity, 'w');
+          restoreState(snap);
+          if (score > best) { best = score; bestMove = m; }
+          if (((typeof performance !== 'undefined' ? performance : Date).now() - startTime) > timeLimit) {
+            timedOut = true;
+            break;
+          }
+        }
+        if (bestMove) {
+          chosen = bestMove;
+          // Search the previous best move first next iteration — the strongest
+          // move-ordering signal there is, and it makes deeper iterations cheap.
+          ordered = [bestMove, ...ordered.filter(m => m !== bestMove)];
+        }
+        if (timedOut || best >= 99999) break;
       }
-      if (!chosen) chosen = moves[0];
     }
 
     executeMove(chosen.fr, chosen.fc, chosen.tr, chosen.tc);
