@@ -1776,47 +1776,39 @@ function quiesce(alpha, beta, color, qdepth) {
   return alpha;
 }
 
-/* ── Minimax + Alpha-Beta ── */
+/* ── Minimax + Alpha-Beta (negamax form) ──
+   Returns the score from the perspective of `color` (positive = good for `color`).
+   Every recursive/leaf value must share this convention, so child scores are negated
+   before being folded into the parent's search — mixing conventions here silently
+   corrupts every other ply and makes the bot blunder. */
 function minimax(depth, alpha, beta, color) {
   if (depth === 0) return quiesce(alpha, beta, color, 3);
 
+  const opp = color === 'b' ? 'w' : 'b';
+
   // Check terminal
   if (mode==='atomic') {
-    if (!kingExists('w')) return  99999;
-    if (!kingExists('b')) return -99999;
+    if (!kingExists(color)) return -99999;
+    if (!kingExists(opp))   return  99999;
   }
 
   const moves = orderMoves(getAllLegalMoves(color), color);
   if (moves.length === 0) {
-    if (isInCheck(color, board)) return color==='b' ? -99999 : 99999;
+    if (isInCheck(color, board)) return -99999; // color has been checkmated
     return 0; // stalemate
   }
 
-  if (color === 'b') {
-    let best = -Infinity;
-    for (const m of moves) {
-      const snap = saveState();
-      applyMoveRaw(m);
-      const score = minimax(depth-1, alpha, beta, 'w');
-      restoreState(snap);
-      best  = Math.max(best, score);
-      alpha = Math.max(alpha, best);
-      if (alpha >= beta) break;
-    }
-    return best;
-  } else {
-    let best = Infinity;
-    for (const m of moves) {
-      const snap = saveState();
-      applyMoveRaw(m);
-      const score = minimax(depth-1, alpha, beta, 'b');
-      restoreState(snap);
-      best = Math.min(best, score);
-      beta = Math.min(beta, best);
-      if (alpha >= beta) break;
-    }
-    return best;
+  let best = -Infinity;
+  for (const m of moves) {
+    const snap = saveState();
+    applyMoveRaw(m);
+    const score = -minimax(depth-1, -beta, -alpha, opp);
+    restoreState(snap);
+    best  = Math.max(best, score);
+    alpha = Math.max(alpha, best);
+    if (alpha >= beta) break;
   }
+  return best;
 }
 
 /* ── Bot entry point ── */
@@ -1839,7 +1831,7 @@ function doBotMove() {
       for (const m of ordered) {
         const snap = saveState();
         applyMoveRaw(m);
-        const score = minimax(depth - 1, -Infinity, Infinity, 'w');
+        const score = -minimax(depth - 1, -Infinity, Infinity, 'w');
         restoreState(snap);
         if (score > best) { best = score; chosen = m; }
       }
